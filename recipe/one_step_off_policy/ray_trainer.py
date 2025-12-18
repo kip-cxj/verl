@@ -132,8 +132,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.rank_offset = config.trainer.n_gpus_per_node * config.trainer.nnodes
         self.ps_world_size = self.rank_offset + config.rollout.n_gpus_per_node * config.rollout.nnodes
 
-        print(f"yxdebug rank_offset={self.rank_offset} ps_world_size={self.ps_world_size}")
-
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate(self):
@@ -161,19 +159,12 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         self.resource_pool_to_cls = {pool: {} for pool in self.resource_pool_manager.resource_pool_dict.values()}
 
-        print("yxdebug _init_resource_pools done")
-
     def _create_worker_classes(self):
         self._create_actor_rollout_classes()
-        print("yxdebug _create_actor_rollout_classes done")
         self._create_critic_class()
-        print("yxdebug _create_critic_class done")
         self._create_reference_policy_class()
-        print("yxdebug _create_reference_policy_class done")
         self._create_reward_model_class()
-        print("yxdebug _create_reward_model_class done")
         self._create_chpt_engine_class()
-        print("yxdebug _create_chpt_engine_class done")
 
     def _create_chpt_engine_class(self):
         # create chpt engine
@@ -249,10 +240,8 @@ class OneStepOffRayTrainer(RayPPOTrainer):
                     OmegaConf.select(self.config.global_profiler.global_tool_config.nsys, "worker_nsight_options")
                 )
         wg_kwargs["device_name"] = self.device_name
-        print(f"yxdebug wg_kwargs {wg_kwargs}")
 
         for resource_pool, class_dict in self.resource_pool_to_cls.items():
-            print(f"yxdebug resource_pool {resource_pool} class_dict {class_dict}")
             worker_dict_cls = create_colocated_worker_cls(class_dict=class_dict)
             wg_dict = self.ray_worker_group_cls(
                 resource_pool=resource_pool,
@@ -262,38 +251,30 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())
             all_wg.update(spawn_wg)
         self.all_wg = all_wg
-        print(f"yxdebug all_wg {all_wg}")
 
     def _init_models(self):
         if self.use_critic:
             self.critic_wg = self.all_wg[str(Role.Critic)]
             self.critic_wg.init_model()
-            print(f"yxdebug {type(self.critic_wg.init_model)} critic_wg.init_model() done")
 
         if self.use_reference_policy and not self.ref_in_actor:
             self.ref_policy_wg = self.all_wg[str(Role.RefPolicy)]
             self.ref_policy_wg.init_model()
-            print(f"yxdebug {type(self.ref_policy_wg.init_model)} ref_policy_wg.init_model() done")
 
         self.rm_wg = None
         if self.use_rm:
             self.rm_wg = self.all_wg[str(Role.RewardModel)]
             self.rm_wg.init_model()
-            print(f"yxdebug {type(self.rm_wg.init_model)} rm_wg.init_model() done")
 
         self.actor_wg = self.all_wg[str(Role.Actor)]
         self.rollout_wg = self.all_wg[str(Role.Rollout)]
         self.actor_wg.init_model()
-        print(f"yxdebug {type(self.actor_wg.init_model)} actor_wg.init_model() done")
         self.rollout_wg.init_model()
-        print(f"yxdebug {type(self.rollout_wg.init_model)} rollout_wg.init_model() done")
         self.chpt_engine_wg = self.all_wg[str(Role.ChptEngine)]
         self.actor_rollout_wg = self.actor_wg
         weights_info = self.actor_wg.get_actor_weights_info()[0]
         self.rollout_wg.set_actor_weights_info(weights_info)
-        print("yxdebug init_model() done")
         self._create_weight_sync_group()
-        print("yxdebug create_weight_sync_group() done")
 
     def _create_weight_sync_group(self):
         # TODO: NPU support
@@ -311,7 +292,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
             group_name="actor_rollout",
         )
 
-        print("yxdebug ray create_collective_group done")
         self.actor_wg.init_process_group()
         ray.get(self.chpt_engine_wg.init_process_group())
 
@@ -330,22 +310,16 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         self.async_rollout_manager = OneStepOffAgentLoopManager(
             config=self.config, worker_group=self.rollout_wg, rm_resource_pool=rm_resource_pool
         )
-        print(
-            f"yxdebug _init_async_rollout_manager done self.async_rollout_manager={self.async_rollout_manager} "
-            f"server_address={self.async_rollout_manager.server_addresses}"
-        )
 
         ray.get(self.chpt_engine_wg.set_server_addresses(self.async_rollout_manager.server_addresses))
 
     def sync_rollout_weights(self):
-        print(f"yxdebug enter sync_rollout_weights")
         start = time.perf_counter()
         # self.actor_wg.sync_rollout_weights()
         # ray.get(self.rollout_wg.sync_rollout_weights())
         self.actor_wg.sync_rollout_weights_by_chpt_engine()
         ray.get(self.chpt_engine_wg.sync_rollout_weights_by_chpt_engine())
         end = time.perf_counter()
-        print(f"yxdebug sync_rollout_weights duration: {end - start:.2f} seconds")
 
     def _create_continuous_iterator(self):
         """
@@ -459,7 +433,6 @@ class OneStepOffRayTrainer(RayPPOTrainer):
         to construct the PPO dataflow.
         The light-weight advantage computation is done on the driver process.
         """
-        print("yxdebug enter fit")
         from omegaconf import OmegaConf
 
         from verl.utils.tracking import Tracking
@@ -475,13 +448,10 @@ class OneStepOffRayTrainer(RayPPOTrainer):
 
         # load checkpoint before doing anything
         self._load_checkpoint()
-        print("yxdebug fit1")
 
         # after load checkpoint sync rollout weights
         self.sync_rollout_weights()
-        print("yxdebug fit2")
         await self.async_rollout_manager.clear_kv_cache()
-        print("yxdebug fit3")
 
         # perform validation before training
         # currently, we only support validation using the reward_function.

@@ -117,26 +117,20 @@ class DetachSync(AsyncActorRolloutRefWorker):
 
 class DetachActorWorker(DetachSync):
     def __init__(self, config: DictConfig, role: str, **kwargs):
-        print(f"yxdebug [DetachActorWorker] {DetachActorWorker.__mro__}")
         ActorRolloutRefWorker.__init__(self, config, role)
 
         if role == "actor":
             self.ps_rank_offset = kwargs.get("rank_offset", self.rank)
             self.ps_world_size = kwargs.get("ps_world_size", self.world_size)
             self.ps = ParameterServer(rank=self.rank, world_size=self.ps_world_size)
-            print(
-                f"yxdebug __init__ actor rank={self.rank} rank_offset={self.ps_rank_offset} ps_world_size={self.ps_world_size} ps={self.ps}"
-            )
 
             self.index = 0
-            print("yxdebug __init__ actor done")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_process_group(self):
         os.environ["HCCL_NPU_SOCKET_PORT_RANGE"] = "61020-61050"
         self.ps.init_process_group(device_index=0, master_port=60010)
         del os.environ["HCCL_NPU_SOCKET_PORT_RANGE"]
-        print("yxdebug actor init_process_group done")
 
     def split_tensors(self) -> dict[str, torch.Tensor]:
         assert self._is_actor and not self.config.hybrid_engine
@@ -210,7 +204,6 @@ class DetachActorWorker(DetachSync):
 
 class DetachAsyncRolloutWorker(DetachSync):
     def __init__(self, config: DictConfig, role: str, **kwargs):
-        print(f"yxdebug [DetachAsyncRolloutWorker] {DetachAsyncRolloutWorker.__mro__}")
         ActorRolloutRefWorker.__init__(self, config, role)
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)

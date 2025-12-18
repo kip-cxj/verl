@@ -158,9 +158,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         world_size = torch.distributed.get_world_size()
         # TODO(sgm): support FSDP hybrid shard for larger model
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=self.config.actor.fsdp_config.fsdp_size)
-        print(
-            f"yxdebug role={role} rank={torch.distributed.get_rank()} world_size={world_size} fsdp_size={self.config.actor.fsdp_config.fsdp_size} device_mesh={self.device_mesh}"
-        )
 
         # build device mesh for Ulysses Sequence Parallel
         self.ulysses_device_mesh = None
@@ -601,10 +598,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         )
         rollout_name = self.config.rollout.name
 
-        print(
-            f"yxdebug infer_tp={infer_tp} infer_pp={infer_pp} dp={dp} world_size={self.world_size} rollout_device_mesh={rollout_device_mesh} self.actor_module_fsdp={self.actor_module_fsdp}"
-        )
-
         self.rollout_device_mesh = rollout_device_mesh
 
         if rollout_name == "hf":
@@ -761,8 +754,6 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
     def init_model(self):
-        print(f"yxdebug self={self} is_actor={self._is_actor} is_rollout={self._is_rollout} is_ref={self._is_ref}")
-
         from verl.workers.actor import DataParallelPPOActor
 
         # This is used to import external_lib into the huggingface systems

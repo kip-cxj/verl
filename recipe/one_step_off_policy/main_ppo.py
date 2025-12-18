@@ -151,10 +151,7 @@ class OneStepTaskRunner:
         from verl.utils.fs import copy_to_local
 
         if os.environ.get("ASCEND_RT_VISIBLE_DEVICES", None) is not None:
-            print(f"yxdebug os.environ[ASCEND_RT_VISIBLE_DEVICES]={os.environ['ASCEND_RT_VISIBLE_DEVICES']}")
             del os.environ["ASCEND_RT_VISIBLE_DEVICES"]
-        else:
-            print("yxdebug ASCEND_RT_VISIBLE_DEVICES not in os.environ")
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 

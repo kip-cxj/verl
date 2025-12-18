@@ -79,7 +79,6 @@ def get_nccl_backend() -> str:
         nccl backend type string.
     """
     # is_npu_available is False because envrionment variables ASCEND_RT_VISABLE_DEVICES is empty
-    print(f"yxdebug is_npu_available={is_npu_available}")
     # if is_npu_available:
     if is_torch_npu_available():
         return "hccl"

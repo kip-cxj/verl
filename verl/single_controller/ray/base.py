@@ -140,7 +140,6 @@ class RayResourcePool(ResourcePool):
                 if self.accelerator_type is not None:
                     bundle[self.accelerator_type] = 1e-4
         pg_scheme = [[bundle.copy() for _ in range(process_count)] for process_count in self._store]
-        print(f"yxdebug resource_pool={self.name_prefix} pg_scheme={pg_scheme}")
 
         lifetime = "detached" if self.detached else None
 
@@ -540,10 +539,6 @@ class RayWorkerGroup(WorkerGroup):
         # num_gpus = 1 / resource_pool.max_colocate_count
         custom_bundle = resource_pool.custom_bundle
         num_gpus = custom_bundle.get("NPU", 1.0) if custom_bundle is not None else 1 / resource_pool.max_colocate_count
-        print(
-            f"yxdebug resource_pool={resource_pool.name_prefix} max_colocate_count={resource_pool.max_colocate_count} num_gpus={num_gpus}"
-        )
-
         # we pass in environment variable at option so that Worker can use environment variable to set
         env_vars = {
             "WORLD_SIZE": str(world_size),
@@ -923,25 +918,18 @@ def create_colocated_worker_cls(class_dict: dict[str, RayClassWithInitArgs]):
     # TODO: create a class with customizable name
     class WorkerDict(worker_cls):
         def __init__(self):
-            print(f"yxdebug os.environ[ASCEND_RT_VISIBLE_DEVICES]={os.environ['ASCEND_RT_VISIBLE_DEVICES']}")
-            print(f"yxdebug os.environ[MASTER_ADDR]={os.environ['MASTER_ADDR']}")
-            print(f"yxdebug os.environ[MASTER_PORT]={os.environ['MASTER_PORT']}")
-            print(f"yxdebug rank: {os.environ['RANK']} pid: {os.getpid()} world_size {os.environ['WORLD_SIZE']}")
 
             super().__init__()
             self.worker_dict = {}
-            print(f"yxdebug cls_dict {cls_dict}")
             for key, user_defined_cls in cls_dict.items():
                 user_defined_cls = _unwrap_ray_remote(user_defined_cls)
                 # directly instantiate the class without remote
                 # in worker class, e.g. <verl.single_controller.base.worker.Worker>
                 # when DISABLE_WORKER_INIT == 1 it will return immediately
                 with temp_env_var("DISABLE_WORKER_INIT", "1"):
-                    print(f"yxdebug key {key} user_defined_cls {user_defined_cls}")
                     self.worker_dict[key] = user_defined_cls(
                         *init_args_dict[key].get("args", ()), **init_args_dict[key].get("kwargs", {})
                     )
-            print(f"yxdebug worker_dict {self.worker_dict}")
 
     # now monkey-patch the methods from inner class to WorkerDict
     for key, user_defined_cls in cls_dict.items():

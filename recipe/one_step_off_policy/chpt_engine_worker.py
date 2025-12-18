@@ -47,24 +47,17 @@ class ChptEngineWorker(Worker):
         self.ps_world_size = ps_world_size
         self.inference_parallel_size = inference_parallel_size
         self.ps = ParameterServer(rank=rank, world_size=ps_world_size)
-        print(
-            f"yxdebug __init__ checkpoint engine rank_offset={rank_offset} rank={self.rank} ps_rank={rank} ps_world_size={ps_world_size} "
-            f"inference_parallel_size={inference_parallel_size} ps={self.ps}"
-        )
         self.index = 0
-        print("yxdebug __init__ checkpoint engine done")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def init_process_group(self):
         os.environ["HCCL_NPU_SOCKET_PORT_RANGE"] = "61020-61050"
         self.ps.init_process_group(device_index=0, master_port=60010)
         del os.environ["HCCL_NPU_SOCKET_PORT_RANGE"]
-        print("yxdebug checkpoint engine init_process_group done")
 
     def check_vllm_ready(self, uds: str | None = None):
         if self.ps_rank != self.ps_rank // self.inference_parallel_size * self.inference_parallel_size:
             return
-        print(f"yxdebug self.ps_rank={self.ps_rank}")
         retry_num = 0
         transport = None
         if uds is not None:
@@ -83,9 +76,7 @@ class ChptEngineWorker(Worker):
     def set_server_addresses(self, server_addresses: list[str]):
         # todo support multiple api server
         self.endpoint = f"http://{server_addresses[0]}"
-        print(f"yxdebug vllm server_address={self.endpoint}")
         self.check_vllm_ready()
-        print("yxdebug check_vllm_ready done")
 
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     def sync_rollout_weights_by_chpt_engine(self):
