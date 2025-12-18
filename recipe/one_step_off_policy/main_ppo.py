@@ -31,6 +31,8 @@ from verl.trainer.ppo.reward import load_reward_manager
 from verl.trainer.ppo.utils import Role, need_reference_policy
 from verl.utils.config import validate_config
 
+from .chpt_engine_worker import ChptEngineWorker
+
 
 def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
     """
@@ -67,6 +69,14 @@ def create_resource_pool_manager(config, roles: list) -> ResourcePoolManager:
         rollout_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
         resource_pool_spec["rollout_pool"] = rollout_pool
         mapping[Role.Rollout] = "rollout_pool"
+
+    if Role.ChptEngine in roles:
+        assert config.rollout.n_gpus_per_node > 0, "chpt_engine config.rollout.n_gpus_per_node must be greater than 0"
+        assert config.rollout.nnodes > 0, "chpt_engine config.rollout.nnodes must be greater than 0"
+        # the same as rollout pool
+        chpt_engine_pool = [config.rollout.n_gpus_per_node] * config.rollout.nnodes
+        resource_pool_spec["chpt_engine_pool"] = chpt_engine_pool
+        mapping[Role.ChptEngine] = "chpt_engine_pool"
 
     return ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
 
@@ -110,6 +120,7 @@ def create_role_worker_mapping(config):
         Role.Actor: ray.remote(DetachActorWorker),
         Role.Rollout: ray.remote(DetachAsyncRolloutWorker),
         Role.Critic: ray.remote(CriticWorker),
+        Role.ChptEngine: ray.remote(ChptEngineWorker),
     }
 
     if config.reward_model.enable:
@@ -138,6 +149,12 @@ class OneStepTaskRunner:
         from omegaconf import OmegaConf
 
         from verl.utils.fs import copy_to_local
+
+        if os.environ.get("ASCEND_RT_VISIBLE_DEVICES", None) is not None:
+            print(f"yxdebug os.environ[ASCEND_RT_VISIBLE_DEVICES]={os.environ['ASCEND_RT_VISIBLE_DEVICES']}")
+            del os.environ["ASCEND_RT_VISIBLE_DEVICES"]
+        else:
+            print("yxdebug ASCEND_RT_VISIBLE_DEVICES not in os.environ")
 
         print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
 

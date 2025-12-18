@@ -20,9 +20,21 @@ actor_rollout_ref:
     free_cache_engine: False
     # Must be enabled! Otherwise, log_probs cannot be calculated.
     calculate_log_probs: True
+    engine_kwargs:
+      vllm:
+        worker_extension_cls: checkpoint_engine.worker.VllmColocateWorkerExtension
 
 # Only then will the use of log probs be correct.
 # And it can be used in conjunction with other rollout_correction algorithms.
 algorithm:
   rollout_correction:
     bypass_mode: True
+
+ray_kwargs:
+  ray_init:
+    dashboard_host: 0.0.0.0
+    resources:
+      NPU: 8
+    runtime_env:
+      env_vars:
+        RAY_record_task_actor_creation_sites: "true"
