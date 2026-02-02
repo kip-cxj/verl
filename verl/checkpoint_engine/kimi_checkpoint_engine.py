@@ -174,8 +174,10 @@ async def receive_tensor(
 
 @dataclass
 class MasterMetadata:
-    ip: str
-    port: int
+    zmq_ip: str
+    zmq_port: int
+    dist_ip: str
+    dist_port: int
 
 
 class BroadcastOperation:
@@ -231,17 +233,11 @@ class KIMICheckpointEngine(CheckpointEngine):
 
     def __init__(
         self,
-        train_world_size: int,
-        rollout_world_size: int,
         bucket_size: int,
         rebuild_group: bool = False,
         is_master: bool = False,
         rollout_dtype: torch.dtype = torch.bfloat16,
     ) -> None:
-        self.train_world_size = train_world_size
-        self.rollout_world_size = rollout_world_size
-        self.world_size = train_world_size + rollout_world_size
-
         self.bucket_size = bucket_size
         self.rebuild_group = rebuild_group
         self.rollout_dtype = rollout_dtype
@@ -254,9 +250,13 @@ class KIMICheckpointEngine(CheckpointEngine):
             self.ip = ray.util.get_node_ip_address().strip("[]")
             self.listen_port, _ = get_free_port(self.ip)
 
-        return MasterMetadata(ip=self.ip, port=self.listen_port) if self.is_master else None
+        return (
+            MasterMetadata(zmq_ip=None, zmq_port=None, dist_ip=self.ip, dist_port=self.listen_port)
+            if self.is_master
+            else None
+        )
 
-    def finish(self):
+    def finalize(self):
         """Destroy the ckpt engine process group if rebuild_group is True."""
         if self.rebuild_group:
             dist.destroy_process_group()
@@ -264,7 +264,25 @@ class KIMICheckpointEngine(CheckpointEngine):
             self.world_size = None
             self.initialized = False
 
-    def init_process_group(self, rank: int, world_size: int, master_metadata: MasterMetadata):
+    @classmethod
+    def build_topology(cls, trainer_world_size: int, rollout_world_size: int, metadata: list[dict]):
+        trainer_kwargs = {
+            "method": ["init_process_group"] * trainer_world_size,
+            "rank": list(range(0, trainer_world_size)),
+            "trainer_world_size": [trainer_world_size] * trainer_world_size,
+            "rollout_world_size": [rollout_world_size] * rollout_world_size,
+            "master_metadata": [metadata[0]] * trainer_world_size,
+        }
+        rollout_kwargs = {
+            "method": ["init_process_group"] * rollout_world_size,
+            "rank": list(range(trainer_world_size, trainer_world_size + rollout_world_size)),
+            "trainer_world_size": [trainer_world_size] * trainer_world_size,
+            "rollout_world_size": [rollout_world_size] * rollout_world_size,
+            "master_metadata": [metadata[0]] * rollout_world_size,
+        }
+        return trainer_kwargs, rollout_kwargs
+
+    def init_process_group(self, rank: int, trainer_world_size: int, rollout_world_size :int, master_metadata: MasterMetadata):
         """Initialize the ckpt engine process group.
 
         Args:
@@ -272,21 +290,25 @@ class KIMICheckpointEngine(CheckpointEngine):
             world_size (int): The total number of processes.
         """
         self.rank = rank
+        self.trainer_world_size = trainer_world_size
+        self.rollout_world_size = rollout_world_size
+        self.world_size = trainer_world_size + rollout_world_size
         # unregister_memory in transfer engine is not supported on NPU,
         # so we have to initialize ParameterServer each time
         if get_device_name() == "npu" or not self.initialized:
-            self.parameter_server = ParameterServer(rank=rank, world_size=world_size, auto_pg=False, custom_dist=True)
+            self.parameter_server = ParameterServer(
+                rank=rank,
+                world_size=self.world_size,
+                auto_pg=False,
+                master_addr=master_metadata.dist_ip,
+                master_port=master_metadata.dist_port,
+            )
             self.parameter_server.receive_tensor = types.MethodType(receive_tensor, self.parameter_server)
         if not self.initialized:
-            dist.init_process_group(
-                host=master_metadata.ip,
-                port=master_metadata.port,
-                rank=rank,
-                world_size=world_size,
-                backend=get_nccl_backend(),
-            )
+            dist.use_backend(f"vllm_{get_nccl_backend()}")
+            self.parameter_server.init_process_group()
 
-            self.rollout_ranks = list(range(self.train_world_size, world_size))
+            self.rollout_ranks = list(range(self.trainer_world_size, self.world_size))
             self.rollout_group = dist.new_group(self.rollout_ranks)
             self.initialized = True
 
@@ -304,7 +326,7 @@ class KIMICheckpointEngine(CheckpointEngine):
         start_time = time.time()
         named_tensors = {}
         for named_tensors_gpu in ckpt_get_named_tensor_buckets(
-            weights, self.bucket_size, self.train_world_size, self.rank, self.rollout_dtype
+            weights, self.bucket_size, self.trainer_world_size, self.rank, self.rollout_dtype
         ):
             with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
                 futures = [
