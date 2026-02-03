@@ -325,26 +325,26 @@ class KIMICheckpointEngine(CheckpointEngine):
             weights: A generator that yields the name of the weight tensor and the tensor itself.
         """
 
-        def offload_cpu(named_tensors: dict[str, torch.Tensor], name: str, tensor: torch.Tensor):
-            named_tensors[name] = tensor.to("cpu", non_blocking=True)
+        def offload_cpu(name: str, tensor: torch.Tensor) -> tuple[str, torch.Tensor]:
+            return name, tensor.to("cpu", non_blocking=True)
 
         start_time = time.time()
         named_tensors = {}
         for named_tensors_gpu in ckpt_get_named_tensor_buckets(
-            weights, self.bucket_size, self.trainer_world_size, self.rank, self.rollout_dtype
+            weights, self.bucket_size, self.train_world_size, self.rank, self.rollout_dtype
         ):
             with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
                 futures = [
                     executor.submit(
                         offload_cpu,
-                        named_tensors,
                         name,
                         tensor,
                     )
                     for name, tensor in named_tensors_gpu.items()
                 ]
             for future in concurrent.futures.as_completed(futures):
-                future.result()
+                name, tensor_cpu = future.result()
+                named_tensors[name] = tensor_cpu
 
         get_torch_device().synchronize()
 
