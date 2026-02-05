@@ -27,7 +27,7 @@ import torch
 from checkpoint_engine.ps import H2DBucket, ParameterMeta, ParameterServer, _gen_h2d_buckets, _to_named_tensor
 
 from verl.checkpoint_engine.base import CheckpointEngine, CheckpointEngineRegistry
-from verl.utils.device import get_device_name, get_nccl_backend, get_torch_device
+from verl.utils.device import get_nccl_backend, get_torch_device
 from verl.utils.net_utils import get_free_port
 
 logger = logging.getLogger(__name__)
